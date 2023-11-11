@@ -3,19 +3,26 @@ import tkinter
 import tkinter.messagebox
 from tkinter.messagebox import showinfo
 
-import threading
+from threading import Thread
 from time import sleep
 import customtkinter as ctk
 import json
 import os
 from datetime import datetime
+from cryptography.fernet import Fernet
 
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import OxmlElement
+from dotenv import load_dotenv
 
 from update import Update
+
+load_dotenv()
+
+encryption_key = os.getenv("ENCRYPTION_KEY")
+cipher_suite = Fernet(encryption_key.encode())
 
 
 # ctk.set_appearance_mode("dark")
@@ -34,10 +41,11 @@ class Gui(ctk.CTk):
         self.form_date_paragraph = None
 
         # Create or open the Word document
-        document_path = os.getenv("DOCUMENT_PATH")
+        self.desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        self.document_path = os.path.join(self.desktop_path, cipher_suite.decrypt(os.getenv("DOCUMENT_PATH").encode()).decode())
         self.document = Document()
-        if os.path.exists(document_path):
-            self.document = Document(document_path)
+        if os.path.exists(self.document_path):
+            self.document = Document(self.document_path)
 
         # Initialize total cost by scanning existing user entries
         self.total_cost = self.calculate_total_cost()
@@ -47,7 +55,7 @@ class Gui(ctk.CTk):
 
         # Gui setup
         self.title("Autorobot")
-        self.geometry(f"{880}x{300}")
+        self.geometry(f"{880}x{350}")
         self.resizable(width=False, height=False)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         # current_dir = os.path.dirname(__file__)
@@ -87,15 +95,50 @@ class Gui(ctk.CTk):
         self.button_1.grid(row=2, column=0, columnspan=3, pady=10, padx=10, sticky="ns")
 
         # create tabview
-        self.tabview = ctk.CTkTabview(self, width=200)
+        self.tabview = ctk.CTkTabview(self, height=300, width=300)
         self.tabview.grid(row=0, column=1, padx=(20, 20), pady=(0, 0), sticky="nsew")
         self.tabview.add("Ayarlar")
         self.tabview.add("Hakkında")
         self.tabview.tab("Ayarlar").grid_columnconfigure(0, weight=1)  # configure grid of individual tabs
         self.tabview.tab("Hakkında").grid_columnconfigure(0, weight=1)
+        self.texbox_about = ctk.CTkTextbox(master=self.tabview.tab("Hakkında"), width=250, height=250)
+        self.texbox_about.grid(row=0, column=0)
+        self.texbox_about.insert(
+            ctk.END,
+            """
+        ------------------------------------------------------
+            Autorobot v0.2.0 Hakkında      
+        ------------------------------------------------------
+
+Autorobot ile kolay docx formları oluşturun ve zaman kazanın.
+
+Version: 0.2.0
+Release Date: November 15, 2023
+
+**Credits:**
+- Developer: Kılıçarslan SIMSIKI
+- UI/UX Design: Kılıçarslan SIMSIKI
+
+**Contact and Support:**
+For any inquiries, feedback, or technical support,\n please contact our dedicated support team at https://swordlion.org
+
+**Legal Information:**
+Autorobot is a trademark of swordlion.org Corporation. All rights reserved.
+This software is protected by international copyright laws.
+Unauthorized reproduction or distribution of this software is prohibited.
+
+**Privacy Policy:**
+Read our privacy policy at https://swordlion.org for\n information on how we handle your data and protect your privacy.
+
+Thank you for choosing Autorobot.
+
+
+            """,
+        )
+        self.texbox_about.configure(state="disabled")
         self.button_update = ctk.CTkButton(
             master=self.tabview.tab("Ayarlar"),
-            command=self.patch.ApplyUpdate,
+            command=Thread(target=self.Update_Control),
             text="Güncelleme",
         )
         self.button_update.grid(row=0, column=0, padx=20, pady=(10, 10))
@@ -107,6 +150,9 @@ class Gui(ctk.CTk):
 
     def Show_Update_Popup(self):
         showinfo("Autorobot", "Yeni Güncelleme Mevcut!\nAyarlar->Güncelleme butonundan güncellemeyi indirin")
+
+    def Update_Control(self):
+        self.patch.ApplyUpdate()
 
     def Save_Document(self):
         # Get user inputs
@@ -143,7 +189,7 @@ class Gui(ctk.CTk):
         self.sort_user_entries_table()
 
         # Save the document
-        self.document.save(os.getenv("DOCUMENT_PATH"))
+        self.document.save(self.document_path)
 
     def Update_Form_Date(self):
         import calendar
@@ -162,7 +208,7 @@ class Gui(ctk.CTk):
         # Update the text content of the form date paragraph
         self.form_date_paragraph.text = f"Form Tarihi: {last_day_of_month.strftime('%d.%m.%Y')}"
         # Save the document
-        self.document.save(os.getenv("DOCUMENT_PATH"))
+        self.document.save(self.document_path)
 
     def Create_Header(self):
         # Check if the header already exists

@@ -1,10 +1,21 @@
 import json
+import subprocess
+import sys
 import requests
+import zipfile
 
 import os
 from dotenv import load_dotenv
+from packaging import version
+from cryptography.fernet import Fernet
 
 load_dotenv()
+
+encryption_key = os.getenv("ENCRYPTION_KEY")
+cipher_suite = Fernet(encryption_key.encode())
+
+
+current_dir = os.path.dirname(__file__)
 
 
 class Update:
@@ -23,9 +34,9 @@ class Update:
         raw_data = {
             "jsonrpc": "2.0",
             "params": {
-                "login": os.getenv("LOGIN"),
-                "password": os.getenv("PASSWORD"),
-                "db": os.getenv("DB"),
+                "login": cipher_suite.decrypt(os.getenv("LOGIN").encode()).decode(),
+                "password": cipher_suite.decrypt(os.getenv("PASSWORD").encode()).decode(),
+                "db": cipher_suite.decrypt(os.getenv("DB").encode()).decode(),
             },
         }
 
@@ -34,7 +45,7 @@ class Update:
         }
 
         payload = json.dumps(raw_data)
-        response = self.session.post(url=os.getenv("URL_Login"), data=payload, headers=headers)
+        response = self.session.post(url=cipher_suite.decrypt(os.getenv("URL_LOGIN").encode()).decode(), data=payload, headers=headers)
         # print(response.content)
 
     def Read(self):
@@ -43,8 +54,8 @@ class Update:
             "jsonrpc": "2.0",
             "method": "call",
             "params": {
-                "model": os.getenv("MODEL"),
-                "method": os.getenv("METHOD"),
+                "model": cipher_suite.decrypt(os.getenv("MODEL").encode()).decode(),
+                "method": cipher_suite.decrypt(os.getenv("METHOD").encode()).decode(),
                 "args": [],
                 "kwargs": {
                     "limit": 80,
@@ -53,7 +64,7 @@ class Update:
                     "context": {"lang": "en_US", "tz": "Europe/Istanbul", "uid": 2, "allowed_company_ids": [1], "bin_size": True},
                     "count_limit": 10001,
                     "domain": [["name", "=", "Prototype"]],
-                    "fields": ["name", "version", "push_update"],
+                    "fields": ["name", "version", "push_update", "developer"],
                 },
             },
         }
@@ -63,8 +74,8 @@ class Update:
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9,tr;q=0.8",
             "content-type": "application/json",
-            "origin": os.getenv("HEADERS_ORIGIN"),
-            "referer": os.getenv("HEADERS_REFERER"),
+            "origin": cipher_suite.decrypt(os.getenv("HEADERS_ORIGIN").encode()).decode(),
+            "referer": cipher_suite.decrypt(os.getenv("HEADERS_REFERER").encode()).decode(),
             "sec-ch-ua": '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
@@ -75,10 +86,18 @@ class Update:
         }
 
         payload = json.dumps(raw_data)
-        response = self.session.post(url=os.getenv("URL_READ"), data=payload, headers=headers)
+        response = self.session.post(url=cipher_suite.decrypt(os.getenv("URL_READ").encode()).decode(), data=payload, headers=headers)
         response_data = response.json()
         isUpdateAvailable = response_data["result"]["records"][0]["push_update"]
-        return isUpdateAvailable
+        version_cloud = response_data["result"]["records"][0]["version"]
+        developer = response_data["result"]["records"][0]["developer"]
+        version_current = ""
+        with open(os.path.join(current_dir, ".version"), "r") as vfile:
+            version_current = vfile.readline()
+        if version.parse(version_current) < version.parse(version_cloud) and not developer:
+            return isUpdateAvailable
+        else:
+            return False
 
     def IsUpdateAvailable(self) -> bool:
         """_summary_
@@ -91,7 +110,9 @@ class Update:
 
     def ApplyUpdate(self):
         """_summary_"""
-        self.DownloadUpdate()
+        if self.DownloadUpdate():
+            subprocess.Popen(["Autorobot_Updater.exe"])
+            sys.exit()
 
     def DownloadUpdate(self):
         headers = {
@@ -100,7 +121,7 @@ class Update:
             "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
-            "Referer": os.getenv("HEADERS_REFERER"),
+            "Referer": cipher_suite.decrypt(os.getenv("HEADERS_REFERER").encode()).decode(),
             "Upgrade-Insecure-Requests": "1",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
@@ -108,16 +129,18 @@ class Update:
             "Sec-Fetch-User": "?1",
             "TE": "trailers",
         }
-        response = self.session.get(url=os.getenv("URL_UPDATE"), headers=headers)
+        response = self.session.get(url=cipher_suite.decrypt(os.getenv("URL_UPDATE").encode()).decode(), headers=headers)
         # print(response.content)
         # Check if the request was successful
         if response.status_code == 200:
             # Save the downloaded file
-            with open(os.path.abspath(os.path.join(os.getcwd(), os.getenv("UPDATE_SAVE_PATH"))), "wb") as file:
+            with open(os.path.join(current_dir, cipher_suite.decrypt(os.getenv("UPDATE_SAVE_PATH").encode()).decode()), "wb") as file:
                 for chunk in response.iter_content(chunk_size=128):
                     file.write(chunk)
+            return True
         else:
             print(f"Failed to download the update. Status code: {response.status_code}")
+            return False
 
 
 if __name__ == "__main__":

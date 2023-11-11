@@ -1,5 +1,8 @@
 *.docx
 *.zip
+Autorobot/encryptor.py
+Autorobot/decryptor.py
+Autorobot/output
 
 
 # Byte-compiled / optimized / DLL files
